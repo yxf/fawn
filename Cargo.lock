@@ -877,13 +877,13 @@ dependencies = [
  "futures 0.3.4",
  "log",
  "parity-scale-codec",
+ "pow-consensus",
  "pow-runtime",
  "rand 0.7.3",
  "sc-basic-authorship",
  "sc-cli",
  "sc-client",
  "sc-client-api",
- "sc-consensus-pow",
  "sc-executor",
  "sc-network",
  "sc-service",
@@ -3153,6 +3153,26 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "05da548ad6865900e60eaba7f589cc0783590a92e940c26953ff81ddbab2d677"
 
 [[package]]
+name = "pow-consensus"
+version = "2.0.0"
+dependencies = [
+ "derive_more",
+ "futures 0.3.4",
+ "log",
+ "parity-scale-codec",
+ "sc-client-api",
+ "sp-api",
+ "sp-block-builder",
+ "sp-blockchain",
+ "sp-consensus",
+ "sp-consensus-pow",
+ "sp-core",
+ "sp-inherents",
+ "sp-runtime",
+ "sp-timestamp",
+]
+
+[[package]]
 name = "pow-runtime"
 version = "2.0.0"
 dependencies = [
@@ -3984,28 +4004,6 @@ dependencies = [
  "sp-state-machine",
  "sp-trie",
  "substrate-prometheus-endpoint",
-]
-
-[[package]]
-name = "sc-consensus-pow"
-version = "0.8.0-alpha.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bcc89066cf19325ccfefea8f0e1b63688b618e3f9e501d893f1667e751339ccc"
-dependencies = [
- "derive_more",
- "futures 0.3.4",
- "log",
- "parity-scale-codec",
- "sc-client-api",
- "sp-api",
- "sp-block-builder",
- "sp-blockchain",
- "sp-consensus",
- "sp-consensus-pow",
- "sp-core",
- "sp-inherents",
- "sp-runtime",
- "sp-timestamp",
 ]
 
 [[package]]

@@ -1,15 +1,39 @@
 use sp_core::{U256, H256};
 use sp_runtime::generic::BlockId;
-use sp_runtime::traits::Block as BlockT;
 use parity_scale_codec::{Encode, Decode};
 use sc_consensus_pow::{PowAlgorithm, Error};
-use sp_consensus_pow::Seal as RawSeal;
+use sp_consensus_pow::{Seal as RawSeal, POW_ENGINE_ID};
 use sha3::{Sha3_256, Digest};
 use rand::{thread_rng, SeedableRng, rngs::SmallRng};
 
+use sc_client_api::{backend::AuxStore, client::BlockBackend };
+// use sp_api::ProvideRuntimeApi;
+use sp_blockchain::{HeaderBackend, ProvideCache};
+use std::sync::Arc;
+use sp_runtime::traits::{ Header as HeaderT, Block as BlockT, NumberFor };
+
+
 /// A concrete PoW Algorithm that uses Sha3 hashing.
-#[derive(Clone)]
-pub struct Sha3Algorithm;
+// #[derive(Clone)]
+pub struct Sha3Algorithm<C> {
+	client: Arc<C>
+}
+
+impl<C> Clone for Sha3Algorithm<C> {
+	fn clone(&self) -> Self {
+		Self {
+			client: self.client.clone()
+		}
+	}
+}
+
+impl<C> Sha3Algorithm<C> {
+	pub fn new(client: Arc<C>) -> Self {
+		Self {
+			client: client
+		}
+	}
+}
 
 /// Determine whether the given hash satisfies the given difficulty.
 /// The test is done by multiplying the two together. If the product
@@ -43,23 +67,82 @@ pub struct Compute {
 impl Compute {
 	pub fn compute(self) -> Seal {
 		let work = H256::from_slice(Sha3_256::digest(&self.encode()[..]).as_slice());
-
 		Seal {
 			nonce: self.nonce,
 			difficulty: self.difficulty,
-			work: work,
+			work: work
 		}
 	}
 }
 
 // Here we implement the general PowAlgorithm trait for our concrete Sha3Algorithm
-impl<B: BlockT<Hash=H256>> PowAlgorithm<B> for Sha3Algorithm {
+impl<B, C> PowAlgorithm<B> for Sha3Algorithm<C> where 
+	B: BlockT<Hash=H256>,
+	C: HeaderBackend<B> + BlockBackend<B> + AuxStore + ProvideCache<B> + Send + Sync
+{
 	type Difficulty = U256;
 
-	fn difficulty(&self, _parent: &BlockId<B>) -> Result<Self::Difficulty, Error<B>> {
-		// This basic PoW uses a fixed difficulty.
-		// Raising this difficulty will make the block time slower.
-		Ok(U256::from(1000_000))
+	fn difficulty(&self, parent: &BlockId<B>) -> Result<Self::Difficulty, Error<B>> {
+		let target_timespan = 60 * 60; // 1 hour
+		let target_duration = 10; // 10 seconds
+		
+		let interval = NumberFor::<B>::from(target_timespan / target_duration);
+
+		let zero = NumberFor::<B>::from(0);
+
+
+		let last_header = self.client.header(*parent).map_err(|e| Error::Client(e))?.unwrap();
+
+		let last_number = *last_header.number();
+
+
+		let last_ts = last_header.digest().convert_first(|item| {
+			if let Some(raw) = item.as_other() {
+				u32::decode(&mut &raw[..]).ok()
+			} else {
+				None
+			}
+		});
+
+		let seal = last_header.digest().convert_first(|item| {
+			if let Some((engine_id, raw_seal)) = item.as_seal() {
+				if engine_id == POW_ENGINE_ID {
+					Seal::decode(&mut &raw_seal[..]).ok()
+				} else {
+					None
+				}
+			} else {
+				None
+			}
+		});
+
+		let mut start_ts: Option<u32> = None;
+
+		if last_number % interval == zero &&  last_number > zero {
+			let start_block_id = BlockId::Number(last_number - interval);
+			let start_header = self.client.header(start_block_id).map_err(|e| Error::Client(e))?.unwrap();
+
+			start_ts = start_header.digest().convert_first(|item| {
+				if let Some(raw) = item.as_other() {
+					u32::decode(&mut &raw[..]).ok()
+				} else {
+					None
+				}
+			});
+		}
+
+		match (start_ts, last_ts, seal) {
+			(Some(start_ts), Some(last_ts), Some(seal)) if last_ts != start_ts => {
+				let actual_timespan = last_ts - start_ts;
+				let old_diff = seal.difficulty;
+				let new_diff = old_diff * target_timespan / actual_timespan;
+				Ok(U256::from(new_diff))
+			},
+			(None, Some(_), Some(seal)) => {
+				Ok(U256::from(seal.difficulty))
+			},
+			_ => Ok(U256::from(100000))
+		}
 	}
 
 	fn verify(
